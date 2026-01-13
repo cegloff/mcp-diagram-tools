@@ -114,26 +114,33 @@ Note: Mermaid conversion requires Node.js with @excalidraw/mermaid-to-excalidraw
     elif args.transport == "http":
         # Streamable HTTP transport
         try:
-            from mcp.server.streamable_http import StreamableHTTPServerTransport
+            import contextlib
+            from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
             from starlette.applications import Starlette
             from starlette.routing import Route
             import uvicorn
 
-            transport = StreamableHTTPServerTransport(
-                mcp_endpoint="/mcp",
-                messages_endpoint="/messages",
+            session_manager = StreamableHTTPSessionManager(
+                app=mcp._mcp_server,
+                json_response=False,
+                stateless=True,
             )
 
             async def handle_mcp(request):
-                return await transport.handle_request(
-                    request.scope, request.receive, request._send, mcp._mcp_server
+                await session_manager.handle_request(
+                    request.scope, request.receive, request._send
                 )
+
+            @contextlib.asynccontextmanager
+            async def lifespan(app):
+                async with session_manager.run():
+                    yield
 
             app = Starlette(
                 routes=[
                     Route("/mcp", endpoint=handle_mcp, methods=["GET", "POST"]),
-                    Route("/messages", endpoint=handle_mcp, methods=["POST"]),
                 ],
+                lifespan=lifespan,
             )
 
             print(f"Starting HTTP server on {args.host}:{args.port}")
