@@ -39,13 +39,15 @@ edges = [
     # Main flow from symptoms to call physician
     {"id": "e1", "source": "symptoms_title", "target": "call_physician", "label": ""},
 
-    # From call physician - two branches
+    # From call physician - right to severe symptoms question
     {"id": "e2", "source": "call_physician", "target": "severe_symptoms", "label": ""},
-    {"id": "e3", "source": "call_physician", "target": "urgent_care_left", "label": "", "startSide": "bottom", "endSide": "top"},
 
-    # Severe symptoms branch
-    {"id": "e4", "source": "severe_symptoms", "target": "urgent_care_top", "label": ""},
-    {"id": "e5", "source": "severe_symptoms", "target": "mild_symptoms", "label": "", "startSide": "bottom", "endSide": "top"},
+    # From call physician - down branches to both urgent care AND mild symptoms
+    {"id": "e3", "source": "call_physician", "target": "urgent_care_left", "label": "", "startSide": "bottom", "endSide": "top"},
+    {"id": "e4", "source": "call_physician", "target": "mild_symptoms", "label": "", "startSide": "bottom", "endSide": "top"},
+
+    # Severe symptoms branch - right to urgent care top
+    {"id": "e5", "source": "severe_symptoms", "target": "urgent_care_top", "label": ""},
 
     # Mild symptoms to isolate
     {"id": "e6", "source": "mild_symptoms", "target": "isolate", "label": ""},
