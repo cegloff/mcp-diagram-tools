@@ -51,9 +51,9 @@ edges = [
     {"id": "e9", "source": "followup", "target": "next_phase", "label": "", "strokeStyle": "dashed"},
     {"id": "e10", "source": "followup", "target": "ignite", "label": "", "strokeStyle": "dashed"},
 
-    # Phase transitions (vertical connections between rows)
-    {"id": "e11", "source": "aop", "target": "socialize", "label": ""},
-    {"id": "e12", "source": "signed_sow", "target": "project_plan", "label": ""},
+    # Phase transitions (vertical connections between rows) - curved lines from bottom to top
+    {"id": "e11", "source": "aop", "target": "socialize", "label": "", "curveStyle": "curved", "startSide": "bottom", "endSide": "top", "curveDirection": "up"},
+    {"id": "e12", "source": "signed_sow", "target": "project_plan", "label": "", "curveStyle": "curved", "startSide": "bottom", "endSide": "top", "curveDirection": "up"},
 ]
 
 # Convert to JSON strings as expected by the tool

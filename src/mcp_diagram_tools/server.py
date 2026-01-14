@@ -476,6 +476,52 @@ def _create_drawio_xml(nodes: list, edges: list, name: str = "Page-1") -> str:
     return ET.tostring(mxfile, encoding='unicode', xml_declaration=True)
 
 
+def _generate_curved_points(dx: float, dy: float, curve_direction: str = "auto") -> list:
+    """Generate 3-point curved path with midpoint offset perpendicular to line.
+
+    Args:
+        dx: Horizontal distance to end point
+        dy: Vertical distance to end point
+        curve_direction: "auto", "up", "down", "left", "right"
+            - "up": curve arcs upward (negative y offset)
+            - "down": curve arcs downward (positive y offset)
+            - "left": curve arcs left (negative x offset)
+            - "right": curve arcs right (positive x offset)
+            - "auto": automatically determine based on direction
+    """
+    mid_x = dx / 2
+    mid_y = dy / 2
+    # Use 20% of the longer dimension as curve offset
+    offset = max(abs(dx), abs(dy)) * 0.2
+
+    if curve_direction == "up":
+        return [[0, 0], [mid_x, mid_y - offset], [dx, dy]]
+    elif curve_direction == "down":
+        return [[0, 0], [mid_x, mid_y + offset], [dx, dy]]
+    elif curve_direction == "left":
+        return [[0, 0], [mid_x - offset, mid_y], [dx, dy]]
+    elif curve_direction == "right":
+        return [[0, 0], [mid_x + offset, mid_y], [dx, dy]]
+    else:
+        # Auto: offset perpendicular to line
+        if abs(dx) > abs(dy):
+            # Horizontal-dominant: curve vertically (down by default)
+            return [[0, 0], [mid_x, mid_y + offset], [dx, dy]]
+        else:
+            # Vertical-dominant: curve horizontally
+            return [[0, 0], [mid_x - offset, mid_y], [dx, dy]]
+
+
+def _generate_step_points(dx: float, dy: float) -> list:
+    """Generate 3-point step/elbow path (right angle bend)."""
+    if abs(dy) > abs(dx):
+        # Vertical-dominant: go down first, then across
+        return [[0, 0], [0, dy], [dx, dy]]
+    else:
+        # Horizontal-dominant: go across first, then down
+        return [[0, 0], [dx, 0], [dx, dy]]
+
+
 def _create_excalidraw_json(nodes: list, edges: list) -> str:
     """Create an Excalidraw JSON structure from nodes and edges."""
     # Use proper millisecond timestamp for updated field
@@ -652,7 +698,7 @@ def _create_excalidraw_json(nodes: list, edges: list) -> str:
             tgt_w = tgt.get('width', 120)
             tgt_h = tgt.get('height', 60)
 
-            # Determine connection direction based on relative positions
+            # Calculate node centers
             src_cx = src_x + src_w / 2
             src_cy = src_y + src_h / 2
             tgt_cx = tgt_x + tgt_w / 2
@@ -661,31 +707,71 @@ def _create_excalidraw_json(nodes: list, edges: list) -> str:
             dx = tgt_cx - src_cx
             dy = tgt_cy - src_cy
 
-            # Determine which edge to connect from/to
-            if abs(dx) > abs(dy):
-                # Horizontal flow (left-right)
-                if dx > 0:
-                    arrow_start_x = src_x + src_w
-                    arrow_end_x = tgt_x
-                else:
-                    arrow_start_x = src_x
-                    arrow_end_x = tgt_x + tgt_w
+            # Get explicit attachment sides if specified
+            start_side = edge.get('startSide')  # "top", "bottom", "left", "right"
+            end_side = edge.get('endSide')
+
+            # Calculate start point based on startSide or auto-detect
+            if start_side == 'bottom':
+                arrow_start_x = src_cx
+                arrow_start_y = src_y + src_h
+            elif start_side == 'top':
+                arrow_start_x = src_cx
+                arrow_start_y = src_y
+            elif start_side == 'left':
+                arrow_start_x = src_x
                 arrow_start_y = src_cy
+            elif start_side == 'right':
+                arrow_start_x = src_x + src_w
+                arrow_start_y = src_cy
+            else:
+                # Auto-detect based on direction
+                if abs(dx) > abs(dy):
+                    arrow_start_x = src_x + src_w if dx > 0 else src_x
+                    arrow_start_y = src_cy
+                else:
+                    arrow_start_x = src_cx
+                    arrow_start_y = src_y + src_h if dy > 0 else src_y
+
+            # Calculate end point based on endSide or auto-detect
+            if end_side == 'top':
+                arrow_end_x = tgt_cx
+                arrow_end_y = tgt_y
+            elif end_side == 'bottom':
+                arrow_end_x = tgt_cx
+                arrow_end_y = tgt_y + tgt_h
+            elif end_side == 'left':
+                arrow_end_x = tgt_x
+                arrow_end_y = tgt_cy
+            elif end_side == 'right':
+                arrow_end_x = tgt_x + tgt_w
                 arrow_end_y = tgt_cy
             else:
-                # Vertical flow (top-bottom)
-                if dy > 0:
-                    arrow_start_y = src_y + src_h
-                    arrow_end_y = tgt_y
+                # Auto-detect based on direction
+                if abs(dx) > abs(dy):
+                    arrow_end_x = tgt_x if dx > 0 else tgt_x + tgt_w
+                    arrow_end_y = tgt_cy
                 else:
-                    arrow_start_y = src_y
-                    arrow_end_y = tgt_y + tgt_h
-                arrow_start_x = src_cx
-                arrow_end_x = tgt_cx
+                    arrow_end_x = tgt_cx
+                    arrow_end_y = tgt_y if dy > 0 else tgt_y + tgt_h
 
             arrow_x = arrow_start_x
             arrow_y = arrow_start_y
-            points = [[0, 0], [arrow_end_x - arrow_start_x, arrow_end_y - arrow_start_y]]
+
+            # Calculate end point delta
+            end_dx = arrow_end_x - arrow_start_x
+            end_dy = arrow_end_y - arrow_start_y
+
+            # Generate points based on curveStyle (if not using explicit points)
+            if not edge.get('points'):
+                curve_style = edge.get('curveStyle', 'straight')
+                curve_direction = edge.get('curveDirection', 'auto')
+                if curve_style == 'curved':
+                    points = _generate_curved_points(end_dx, end_dy, curve_direction)
+                elif curve_style == 'step':
+                    points = _generate_step_points(end_dx, end_dy)
+                else:
+                    points = [[0, 0], [end_dx, end_dy]]
 
         # Generate text ID if there's a label
         edge_text_id = gen_id() if edge_label else None
@@ -717,6 +803,10 @@ def _create_excalidraw_json(nodes: list, edges: list) -> str:
             }
             arrow_bindings.append((arrow_id, source_id, target_id))
 
+        # Determine if arrow should be curved (smooth through waypoints)
+        curve_style = edge.get('curveStyle', 'straight')
+        is_curved = curve_style == 'curved' or len(points) > 2
+
         arrow = {
             "id": arrow_id,
             "type": "arrow",
@@ -738,7 +828,7 @@ def _create_excalidraw_json(nodes: list, edges: list) -> str:
             "strokeStyle": stroke_style,
             "groupIds": [],
             "frameId": None,
-            "roundness": None,
+            "roundness": {"type": 2} if is_curved else None,
             "boundElements": [{"id": edge_text_id, "type": "text"}] if edge_text_id else [],
             "updated": timestamp,
             "link": None,
@@ -747,7 +837,8 @@ def _create_excalidraw_json(nodes: list, edges: list) -> str:
             "startBinding": start_binding,
             "endBinding": end_binding,
             "startArrowhead": edge.get('startArrowhead', None),
-            "endArrowhead": edge.get('endArrowhead', 'arrow')
+            "endArrowhead": edge.get('endArrowhead', 'arrow'),
+            "elbowed": False
         }
         elements.append(arrow)
 
@@ -899,7 +990,7 @@ def _create_svg(nodes: list, edges: list, width: int = 800, height: int = 600) -
 def diagram_write(
     path: Annotated[str, Field(description="Output path relative to project directory")],
     nodes: Annotated[str, Field(description="JSON array of nodes: [{id, label, type, x, y, width, height}]")],
-    edges: Annotated[str, Field(description="JSON array of edges: [{id, source, target, label}]")] = "[]",
+    edges: Annotated[str, Field(description="JSON array of edges: [{id, source, target, label, curveStyle?, points?}]")] = "[]",
     name: Annotated[Optional[str], Field(description="Diagram name (for multi-page formats)")] = None,
 ) -> str:
     """Create a new diagram from a structure definition.
@@ -920,6 +1011,13 @@ def diagram_write(
     - source: Source node ID
     - target: Target node ID
     - label: Edge label
+    - curveStyle: Line style - "straight" (default), "curved", or "step"
+    - curveDirection: For curved lines - "auto", "up", "down", "left", "right"
+    - startSide: Attachment side on source - "top", "bottom", "left", "right" (auto if omitted)
+    - endSide: Attachment side on target - "top", "bottom", "left", "right" (auto if omitted)
+    - points: Custom waypoints array [[x1,y1], [x2,y2], ...] (relative coords)
+    - strokeStyle: "solid" (default) or "dashed"
+    - strokeColor, strokeWidth: Line appearance
 
     Args:
         path: Output file path (relative to project directory)
