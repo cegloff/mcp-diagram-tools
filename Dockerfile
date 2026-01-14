@@ -10,7 +10,7 @@ COPY src/ ./src/
 RUN pip install -e .
 
 # Copy test files
-COPY test_convert.py test_render_feature.py test_covid.py ./
+COPY test_convert.py test_render_feature.py test_covid.py test_process_flow.py ./
 COPY test_render.excalidraw ./
 
 # Default command - test the render feature
