@@ -987,11 +987,12 @@ def _create_svg(nodes: list, edges: list, width: int = 800, height: int = 600) -
 
 
 @mcp.tool()
-def diagram_write(
+async def diagram_write(
     path: Annotated[str, Field(description="Output path relative to project directory")],
     nodes: Annotated[str, Field(description="JSON array of nodes: [{id, label, type, x, y, width, height}]")],
     edges: Annotated[str, Field(description="JSON array of edges: [{id, source, target, label, curveStyle?, points?}]")] = "[]",
     name: Annotated[Optional[str], Field(description="Diagram name (for multi-page formats)")] = None,
+    render: Annotated[bool, Field(description="Render PNG preview and return as base64")] = False,
 ) -> str:
     """Create a new diagram from a structure definition.
 
@@ -1024,9 +1025,10 @@ def diagram_write(
         nodes: JSON array of node definitions
         edges: JSON array of edge definitions
         name: Optional diagram/page name
+        render: If True, render PNG preview and return as base64 in response
 
     Returns:
-        JSON string with success status and path
+        JSON string with success status, path, and optional base64 image
     """
     try:
         file_path = _resolve_path(path)
@@ -1053,13 +1055,27 @@ def diagram_write(
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text(content, encoding='utf-8')
 
-        return json.dumps({
+        result = {
             "success": True,
             "path": str(file_path.relative_to(PROJECT_DIR)),
             "format": suffix.lstrip('.'),
             "node_count": len(nodes_list),
             "edge_count": len(edges_list)
-        }, indent=2)
+        }
+
+        # Optionally render PNG preview for Excalidraw files
+        if render and suffix == '.excalidraw':
+            try:
+                png_base64 = await _render_excalidraw_to_base64(content, width=1200, height=800)
+                result["image"] = {
+                    "type": "base64",
+                    "media_type": "image/png",
+                    "data": png_base64
+                }
+            except Exception as render_error:
+                result["render_error"] = str(render_error)
+
+        return json.dumps(result, indent=2)
 
     except ValueError as e:
         return json.dumps({"error": str(e)})
@@ -1345,6 +1361,43 @@ def _get_excalidraw_viewer_html(excalidraw_json: str, width: int, height: int) -
     </script>
 </body>
 </html>'''
+
+
+async def _render_excalidraw_to_base64(
+    excalidraw_json: str,
+    width: int = 800,
+    height: int = 600
+) -> str:
+    """Render Excalidraw JSON to PNG and return as base64 string.
+
+    Uses Playwright to render the diagram in a headless browser.
+
+    Args:
+        excalidraw_json: The Excalidraw JSON content
+        width: Viewport width in pixels
+        height: Viewport height in pixels
+
+    Returns:
+        Base64-encoded PNG image data
+    """
+    try:
+        from playwright.async_api import async_playwright
+    except ImportError:
+        raise ImportError("playwright not installed. Run: pip install playwright && playwright install chromium")
+
+    async with async_playwright() as p:
+        browser = await p.chromium.launch()
+        page = await browser.new_page(viewport={"width": width, "height": height})
+
+        html = _get_excalidraw_viewer_html(excalidraw_json, width, height)
+        await page.set_content(html)
+        await page.wait_for_timeout(2000)
+
+        # Screenshot to bytes instead of file
+        png_bytes = await page.screenshot(full_page=False)
+        await browser.close()
+
+    return base64.b64encode(png_bytes).decode('ascii')
 
 
 # ============================================================================

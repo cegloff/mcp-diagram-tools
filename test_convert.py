@@ -4,6 +4,7 @@
 import sys
 sys.path.insert(0, 'src')
 
+import asyncio
 from mcp_diagram_tools.server import diagram_write
 import json
 
@@ -44,7 +45,7 @@ edges = [
     # Row 2 connections
     {"id": "e5", "source": "socialize", "target": "sow_gen", "label": ""},
     {"id": "e6", "source": "sow_gen", "target": "negotiation", "label": ""},
-    {"id": "e7", "source": "negotiation", "target": "signed_sow", "label": "", "strokeStyle": "dashed"},
+    {"id": "e7", "source": "negotiation", "target": "signed_sow", "label": ""},
 
     # Row 3 connections
     {"id": "e8", "source": "project_plan", "target": "followup", "label": ""},
@@ -60,13 +61,17 @@ edges = [
 nodes_json = json.dumps(nodes)
 edges_json = json.dumps(edges)
 
-# Call the diagram_write function
-result = diagram_write(
-    path="workflow.excalidraw",
-    nodes=nodes_json,
-    edges=edges_json,
-    name="Business Process Workflow"
-)
+async def main():
+    # Call the diagram_write function
+    result = await diagram_write(
+        path="workflow.excalidraw",
+        nodes=nodes_json,
+        edges=edges_json,
+        name="Business Process Workflow"
+    )
 
-print("Result:")
-print(result)
+    print("Result:")
+    print(result)
+
+if __name__ == "__main__":
+    asyncio.run(main())
