@@ -1370,32 +1370,56 @@ async def _render_excalidraw_to_base64(
 ) -> str:
     """Render Excalidraw JSON to PNG and return as base64 string.
 
-    Uses Playwright to render the diagram in a headless browser.
+    Uses excalidraw-brute-export-cli which runs the actual Excalidraw web app
+    in a headless browser for accurate rendering.
 
     Args:
         excalidraw_json: The Excalidraw JSON content
-        width: Viewport width in pixels
-        height: Viewport height in pixels
+        width: Viewport width in pixels (not used with CLI, kept for API compatibility)
+        height: Viewport height in pixels (not used with CLI, kept for API compatibility)
 
     Returns:
         Base64-encoded PNG image data
     """
-    try:
-        from playwright.async_api import async_playwright
-    except ImportError:
-        raise ImportError("playwright not installed. Run: pip install playwright && playwright install chromium")
+    import asyncio
+    import tempfile
 
-    async with async_playwright() as p:
-        browser = await p.chromium.launch()
-        page = await browser.new_page(viewport={"width": width, "height": height})
+    with tempfile.TemporaryDirectory() as tmpdir:
+        input_path = os.path.join(tmpdir, "diagram.excalidraw")
+        output_path = os.path.join(tmpdir, "diagram.png")
 
-        html = _get_excalidraw_viewer_html(excalidraw_json, width, height)
-        await page.set_content(html)
-        await page.wait_for_timeout(2000)
+        # Write Excalidraw JSON to temp file
+        with open(input_path, 'w') as f:
+            f.write(excalidraw_json)
 
-        # Screenshot to bytes instead of file
-        png_bytes = await page.screenshot(full_page=False)
-        await browser.close()
+        # Run excalidraw-brute-export-cli for accurate rendering
+        cmd = [
+            'npx', 'excalidraw-brute-export-cli',
+            '-i', input_path,
+            '--format', 'png',
+            '--background', '1',
+            '--scale', '2',  # Higher quality output
+            '-o', output_path
+        ]
+
+        result = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+
+        stdout, stderr = await asyncio.wait_for(
+            result.communicate(),
+            timeout=60
+        )
+
+        if result.returncode != 0:
+            error_msg = stderr.decode('utf-8', errors='replace') if stderr else 'Unknown error'
+            raise RuntimeError(f"Excalidraw export failed: {error_msg}")
+
+        # Read PNG and encode to base64
+        with open(output_path, 'rb') as f:
+            png_bytes = f.read()
 
     return base64.b64encode(png_bytes).decode('ascii')
 
